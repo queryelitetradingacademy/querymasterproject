@@ -1,0 +1,202 @@
+╔══════════════════════════════════════════════════════════════════╗
+║           QUERYMASTER - COMPLETE SETUP GUIDE                    ║
+╚══════════════════════════════════════════════════════════════════╝
+
+DEFAULT ADMIN LOGIN:
+  Email    : admin@querymaster.com
+  Password : Admin@123456
+
+════════════════════════════════════════════════
+STEP 1: MONGODB ATLAS (FREE DATABASE - 5 mins)
+════════════════════════════════════════════════
+
+1. Open browser → go to https://mongodb.com/atlas
+2. Click "Try Free" → Sign up with Google or Email
+3. Choose FREE plan (M0 Sandbox)
+4. Select region: Asia Pacific (Mumbai) - closest to India
+5. Click "Create Cluster" → wait 2-3 minutes
+6. Click "Connect" → "Connect your application"
+7. Copy the connection string — looks like:
+   mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/
+
+8. Open file: querymaster/backend/.env
+9. Replace MONGO_URI line with your connection string like:
+   MONGO_URI=mongodb+srv://myuser:mypassword@cluster0.xxxxx.mongodb.net/querymaster?retryWrites=true&w=majority
+
+   ⚠️  Important: Replace <password> in the string with your actual password
+   ⚠️  Add /querymaster before the ? in the connection string
+
+════════════════════════════════════════════════
+STEP 2: RUN LOCALLY (Test on your computer)
+════════════════════════════════════════════════
+
+Open Command Prompt (Win+R → type cmd → Enter)
+
+--- Run Backend ---
+cd path\to\querymaster\backend
+npm install
+npm run dev
+
+You should see:
+  ✅ MongoDB connected
+  ✅ Admin user seeded
+  🚀 Server running on port 5000
+
+--- Run Frontend (open a NEW cmd window) ---
+cd path\to\querymaster\frontend
+npm install
+npm run dev
+
+You should see:
+  ➜  Local:   http://localhost:5173
+
+Open browser → http://localhost:5173
+Login with: admin@querymaster.com / Admin@123456
+
+════════════════════════════════════════════════
+STEP 3: DEPLOY TO INTERNET (FREE - 15 mins)
+════════════════════════════════════════════════
+
+--- A) GITHUB (Upload code) ---
+
+1. Go to https://github.com → Login
+2. Click "+" → "New Repository"
+3. Name: querymaster
+4. Select: Private
+5. Click "Create Repository"
+6. Open CMD in querymaster folder:
+
+   cd path\to\querymaster
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git branch -M main
+   git remote add origin https://github.com/YOURUSERNAME/querymaster.git
+   git push -u origin main
+
+--- B) RENDER (Backend Hosting - FREE) ---
+
+1. Go to https://render.com → Sign up with GitHub
+2. Click "New +" → "Web Service"
+3. Connect your GitHub repo: querymaster
+4. Set Root Directory: backend
+5. Fill in:
+   Name          : querymaster-backend
+   Runtime       : Node
+   Build Command : npm install
+   Start Command : node server.js
+6. Click "Add Environment Variables" and add ALL variables from your .env file:
+   - MONGO_URI         (your MongoDB connection string)
+   - JWT_SECRET        (any random long string, e.g. MySecretKey123456789abc)
+   - JWT_EXPIRE        7d
+   - NODE_ENV          production
+   - ADMIN_EMAIL       admin@querymaster.com
+   - ADMIN_PASSWORD    Admin@123456
+   - ADMIN_NAME        Admin
+   - FRONTEND_URL      (leave blank for now, add later)
+7. Click "Create Web Service"
+8. Wait 3-5 minutes → You get a URL like:
+   https://querymaster-backend.onrender.com
+9. COPY this URL — you need it next
+
+--- C) VERCEL (Frontend Hosting - FREE) ---
+
+1. Go to https://vercel.com → Sign up with GitHub
+2. Click "Add New Project"
+3. Import your GitHub repo: querymaster
+4. Set Root Directory: frontend
+5. Framework Preset: Vite
+6. Click "Environment Variables" → Add:
+   Name  : VITE_API_URL
+   Value : https://querymaster-backend.onrender.com
+7. Click "Deploy"
+8. Wait 2 minutes → You get URL like:
+   https://querymaster.vercel.app
+
+--- D) CONNECT BACKEND + FRONTEND ---
+
+1. Go back to Render → your backend service
+2. Click "Environment" → Edit FRONTEND_URL
+3. Set value to your Vercel URL:
+   https://querymaster.vercel.app
+4. Click "Save Changes" → backend redeploys automatically
+
+--- E) UPDATE FRONTEND API URL ---
+
+1. Open file: querymaster/frontend/src/api/axios.js
+2. Change baseURL line to:
+   baseURL: 'https://querymaster-backend.onrender.com/api'
+3. Save file
+4. Open CMD:
+   cd path\to\querymaster
+   git add .
+   git commit -m "Update API URL"
+   git push
+5. Vercel auto-redeploys in 2 minutes
+
+════════════════════════════════════════════════
+STEP 4: OPEN YOUR LIVE WEBSITE
+════════════════════════════════════════════════
+
+Go to: https://querymaster.vercel.app
+Login: admin@querymaster.com / Admin@123456
+
+🎉 Your website is live!
+
+Share the public query form link:
+https://querymaster.vercel.app/public-form
+
+════════════════════════════════════════════════
+STEP 5: ADD CUSTOM DOMAIN (When you buy one)
+════════════════════════════════════════════════
+
+1. Go to Vercel → your project → Settings → Domains
+2. Add your domain: www.yourdomain.com
+3. Vercel shows DNS records to add
+4. Go to your domain registrar → DNS settings
+5. Add the records Vercel shows
+6. Done in 10-30 minutes
+
+════════════════════════════════════════════════
+FOLDER STRUCTURE EXPLAINED
+════════════════════════════════════════════════
+
+querymaster/
+├── backend/              ← Node.js API Server
+│   ├── .env              ← ⚠️ Your secret config (EDIT THIS)
+│   ├── server.js         ← Main server entry
+│   ├── models/           ← Database schemas
+│   ├── controllers/      ← Business logic
+│   ├── routes/           ← API endpoints
+│   ├── middleware/        ← Auth protection
+│   └── utils/            ← Helpers (seed, cron, etc)
+│
+├── frontend/             ← React Website
+│   ├── src/
+│   │   ├── pages/        ← All website pages
+│   │   ├── components/   ← Reusable UI pieces
+│   │   ├── api/          ← API call functions
+│   │   ├── store/        ← State management
+│   │   └── utils/        ← Helper functions
+│   └── index.html        ← Entry HTML
+│
+└── SETUP_GUIDE.txt       ← This file
+
+════════════════════════════════════════════════
+TROUBLESHOOTING
+════════════════════════════════════════════════
+
+Problem: "npm install" fails
+Fix: Run "npm install --legacy-peer-deps"
+
+Problem: MongoDB connection error
+Fix: In MongoDB Atlas → Network Access → Add IP → 0.0.0.0/0
+
+Problem: Login not working after deploy
+Fix: Check FRONTEND_URL in Render env matches your Vercel URL exactly
+
+Problem: Backend sleeping on Render free plan
+Fix: Free plan sleeps after 15min. First request takes 30 sec to wake up.
+     Upgrade to $7/month Render plan to avoid this.
+
+Support: All code was built for Node v20+ and React 18+

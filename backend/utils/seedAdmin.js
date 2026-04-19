@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const SystemSetting = require('../models/SystemSetting');
+const FormField = require('../models/FormField');
 
 const defaultSettings = [
   // Queries
@@ -57,6 +58,14 @@ const defaultSettings = [
   { key: 'whatsapp_enabled', label: 'WhatsApp Notifications', category: 'notifications', type: 'boolean', value: false },
 ];
 
+const defaultFormFields = [
+  { label: 'Full Name', fieldName: 'name', fieldType: 'text', placeholder: 'Your full name', isRequired: true, isActive: true, order: 0, isDefault: true },
+  { label: 'Mobile / WhatsApp', fieldName: 'contact', fieldType: 'tel', placeholder: '10-digit mobile number', isRequired: true, isActive: true, order: 1, isDefault: true },
+  { label: 'Email Address', fieldName: 'email', fieldType: 'email', placeholder: 'your@email.com', isRequired: false, isActive: true, order: 2, isDefault: true },
+  { label: 'City', fieldName: 'city', fieldType: 'text', placeholder: 'Your city', isRequired: false, isActive: true, order: 3, isDefault: true },
+  { label: 'Your Query / Message', fieldName: 'remarks', fieldType: 'textarea', placeholder: 'What would you like to know?', isRequired: false, isActive: true, order: 4, isDefault: true },
+];
+
 module.exports = async function seedAdmin() {
   try {
     // Seed admin
@@ -82,22 +91,14 @@ module.exports = async function seedAdmin() {
       await SystemSetting.findOneAndUpdate({ key: setting.key }, setting, { upsert: true, new: true });
     }
     console.log('✅ Default settings seeded');
+
+    // Seed default form fields
+    for (const field of defaultFormFields) {
+      await FormField.findOneAndUpdate({ fieldName: field.fieldName }, field, { upsert: true, new: true });
+    }
+    console.log('✅ Default form fields seeded');
+
   } catch (err) {
     console.error('❌ Seed error:', err.message);
   }
 };
-
-// Seed default public form fields
-const FormField = require('../models/FormField');
-const defaultFormFields = [
-  { label: 'Full Name', fieldName: 'name', fieldType: 'text', placeholder: 'Your full name', isRequired: true, isActive: true, order: 0, isDefault: true },
-  { label: 'Mobile / WhatsApp', fieldName: 'contact', fieldType: 'tel', placeholder: '10-digit mobile number', isRequired: true, isActive: true, order: 1, isDefault: true },
-  { label: 'Email Address', fieldName: 'email', fieldType: 'email', placeholder: 'your@email.com', isRequired: false, isActive: true, order: 2, isDefault: true },
-  { label: 'City', fieldName: 'city', fieldType: 'text', placeholder: 'Your city', isRequired: false, isActive: true, order: 3, isDefault: true },
-  { label: 'Your Query / Message', fieldName: 'remarks', fieldType: 'textarea', placeholder: 'What would you like to know?', isRequired: false, isActive: true, order: 4, isDefault: true },
-];
-
-for (const field of defaultFormFields) {
-  await FormField.findOneAndUpdate({ fieldName: field.fieldName }, field, { upsert: true, new: true });
-}
-console.log('✅ Default form fields seeded');

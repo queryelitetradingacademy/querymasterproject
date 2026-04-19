@@ -1,17 +1,17 @@
 const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
-const Notification = require('../models/Notification');
 
 exports.getStudents = async (req, res) => {
   try {
     const { status, search, page = 1, limit = 20, sortBy = 'createdAt', order = 'desc',
-      traderKnowledge, conversionExpectation, howReached, fromDate, toDate } = req.query;
+      traderKnowledge, conversionExpectation, howReached, fromDate, toDate, batchName } = req.query;
 
     let query = { isActive: true };
     if (status) query.status = status;
     if (traderKnowledge) query.traderKnowledge = traderKnowledge;
     if (conversionExpectation) query.conversionExpectation = conversionExpectation;
     if (howReached) query.howReached = howReached;
+    if (batchName) query.batchName = batchName;
     if (fromDate || toDate) {
       query.createdAt = {};
       if (fromDate) query.createdAt.$gte = new Date(fromDate);
@@ -40,6 +40,29 @@ exports.getStudents = async (req, res) => {
   }
 };
 
+// Batch summary — total/received/pending per batch
+exports.getBatchSummary = async (req, res) => {
+  try {
+    const summary = await Student.aggregate([
+      { $match: { isActive: true, status: 'converted' } },
+      {
+        $group: {
+          _id: '$batchName',
+          totalStudents: { $sum: 1 },
+          totalFee: { $sum: '$totalFee' },
+          totalReceived: { $sum: '$totalReceived' },
+          totalPending: { $sum: '$feePending' },
+          students: { $push: { _id: '$_id', name: '$name', contact: '$contact', totalFee: '$totalFee', totalReceived: '$totalReceived', feePending: '$feePending', feeRemarks: '$feeRemarks', brokerAccountOpened: '$brokerAccountOpened' } }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+    res.json({ success: true, data: summary });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 exports.getStudent = async (req, res) => {
   try {
     const student = await Student.findById(req.params.id)
@@ -56,10 +79,9 @@ exports.getStudent = async (req, res) => {
 exports.createStudent = async (req, res) => {
   try {
     const data = { ...req.body, createdBy: req.user?._id };
-    // STATUS LOGIC:
-    // Public form → always lead (fresh unknown inquiry)
-    // Team creates + converted=true → confirmed
-    // Team creates + converted=false → pending (team is actively working)
+    // Sync courseFeeDecided → totalFee
+    if (data.courseFeeDecided) data.totalFee = data.courseFeeDecided;
+
     if (data.fromPublicForm) {
       data.status = 'lead';
     } else if (data.converted) {
@@ -81,6 +103,7 @@ exports.updateStudent = async (req, res) => {
     if (!existing) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const updateData = { ...req.body };
+    if (updateData.courseFeeDecided) updateData.totalFee = updateData.courseFeeDecided;
 
     if (updateData.converted === true) {
       updateData.status = 'converted';
@@ -107,54 +130,103 @@ exports.deleteStudent = async (req, res) => {
   }
 };
 
-// Add installment — AUTO creates Finance transaction
+// ADD installment — auto-creates finance transaction
 exports.addInstallment = async (req, res) => {
   try {
     const student = await Student.findById(req.params.id);
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const instNumber = student.installments.length + 1;
-    student.installments.push({ ...req.body, number: instNumber });
-    await student.save();
 
-    // AUTO-CREATE Finance transaction
-    await Transaction.create({
+    // Create finance transaction first
+    const tx = await Transaction.create({
       type: 'income',
       amount: Number(req.body.amount),
       date: req.body.date || new Date(),
       book: 'education_business',
       category: 'course_fees',
       source: 'course_fees',
-      description: `Fee Installment ${instNumber} — ${student.name}`,
+      description: `Installment ${instNumber} — ${student.name} (${student.batchName || 'No Batch'})`,
       paymentMode: req.body.mode || 'upi',
-      notes: `Auto from installment. Student: ${student.name} (${student.contact}). ${req.body.note || ''}`.trim(),
+      notes: `Student: ${student.name} | Contact: ${student.contact} | Batch: ${student.batchName || '-'} | Inst #${instNumber}. ${req.body.note || ''}`.trim(),
       linkedStudent: student._id,
+      referenceNumber: req.body.referenceNumber || '',
       createdBy: req.user?._id
     });
 
-    res.json({
-      success: true,
-      data: student,
-      message: `Installment added & ₹${req.body.amount} auto-recorded in Finance`
+    student.installments.push({
+      ...req.body,
+      number: instNumber,
+      financeTransactionId: tx._id
     });
+    await student.save();
+
+    res.json({ success: true, data: student, message: `Installment ${instNumber} added & auto-recorded in Finance ✅` });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
 };
 
-// Add follow-up — auto status update
+// UPDATE installment — syncs finance transaction
+exports.updateInstallment = async (req, res) => {
+  try {
+    const student = await Student.findById(req.params.id);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const inst = student.installments.id(req.params.instId);
+    if (!inst) return res.status(404).json({ success: false, message: 'Installment not found' });
+
+    // Update linked finance transaction
+    if (inst.financeTransactionId) {
+      await Transaction.findByIdAndUpdate(inst.financeTransactionId, {
+        amount: Number(req.body.amount) || inst.amount,
+        date: req.body.date || inst.date,
+        paymentMode: req.body.mode || inst.mode,
+        notes: `[UPDATED] Student: ${student.name} | Batch: ${student.batchName || '-'} | Inst #${inst.number}. ${req.body.note || ''}`.trim()
+      });
+    }
+
+    Object.assign(inst, req.body);
+    await student.save();
+    res.json({ success: true, data: student, message: 'Installment updated & Finance synced ✅' });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// DELETE installment — removes finance transaction
+exports.deleteInstallment = async (req, res) => {
+  try {
+    const student = await Student.findById(req.params.id);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const inst = student.installments.id(req.params.instId);
+    if (!inst) return res.status(404).json({ success: false, message: 'Installment not found' });
+
+    // Remove linked finance transaction
+    if (inst.financeTransactionId) {
+      await Transaction.findByIdAndUpdate(inst.financeTransactionId, { isActive: false });
+    }
+
+    student.installments.pull(req.params.instId);
+    // Renumber remaining installments
+    student.installments.forEach((inst, i) => { inst.number = i + 1; });
+    await student.save();
+
+    res.json({ success: true, data: student, message: 'Installment deleted & Finance updated ✅' });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// Add follow-up
 exports.addFollowUp = async (req, res) => {
   try {
     const student = await Student.findById(req.params.id);
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
 
-    student.followUps.push({
-      ...req.body,
-      number: student.followUps.length + 1,
-      doneBy: req.user._id
-    });
+    student.followUps.push({ ...req.body, number: student.followUps.length + 1, doneBy: req.user._id });
 
-    // Auto-convert or auto-lose based on follow-up status
     if (req.body.status === 'converted') {
       student.converted = true;
       student.status = 'converted';
@@ -170,15 +242,44 @@ exports.addFollowUp = async (req, res) => {
   }
 };
 
-// Public form — always lead
+// Update broker details
+exports.updateBroker = async (req, res) => {
+  try {
+    const student = await Student.findByIdAndUpdate(
+      req.params.id,
+      { brokerAccountOpened: req.body.brokerAccountOpened, brokerDetails: req.body.brokerDetails },
+      { new: true }
+    );
+    res.json({ success: true, data: student });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// Public form
 exports.publicFormSubmit = async (req, res) => {
   try {
-    const student = await Student.create({ ...req.body, fromPublicForm: true, status: 'lead' });
-    res.status(201).json({
-      success: true,
-      message: 'Query submitted successfully! We will contact you soon.',
-      data: { id: student._id }
+    // Separate known fields from dynamic fields
+    const knownFields = ['name', 'contact', 'email', 'city', 'remarks', 'howReached'];
+    const dynamicFields = {};
+    const mainData = {};
+
+    Object.keys(req.body).forEach(key => {
+      if (knownFields.includes(key)) {
+        mainData[key] = req.body[key];
+      } else {
+        dynamicFields[key] = req.body[key];
+      }
     });
+
+    const student = await Student.create({
+      ...mainData,
+      dynamicFields,
+      fromPublicForm: true,
+      status: 'lead',
+      howReached: 'website_registration'
+    });
+    res.status(201).json({ success: true, message: 'Query submitted successfully! We will contact you soon.' });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

@@ -2,8 +2,7 @@ const Task = require('../models/Task');
 
 exports.getTasks = async (req, res) => {
   try {
-    const { status, priority, category, search, page = 1, limit = 50,
-      assignedTo, fromDate, toDate, linkedSegment } = req.query;
+    const { status, priority, category, search, page = 1, limit = 50, assignedTo, linkedSegment } = req.query;
 
     let query = { isActive: true };
     if (status) query.status = status;
@@ -11,11 +10,6 @@ exports.getTasks = async (req, res) => {
     if (category) query.category = category;
     if (assignedTo) query.assignedTo = assignedTo;
     if (linkedSegment) query.linkedSegment = linkedSegment;
-    if (fromDate || toDate) {
-      query.dueDate = {};
-      if (fromDate) query.dueDate.$gte = new Date(fromDate);
-      if (toDate) query.dueDate.$lte = new Date(toDate);
-    }
     if (search) query.$or = [
       { title: { $regex: search, $options: 'i' } },
       { description: { $regex: search, $options: 'i' } }
@@ -52,7 +46,11 @@ exports.getTask = async (req, res) => {
 
 exports.createTask = async (req, res) => {
   try {
-    const task = await Task.create({ ...req.body, createdBy: req.user._id, assignedTo: req.body.assignedTo || req.user._id });
+    const task = await Task.create({
+      ...req.body,
+      createdBy: req.user._id,
+      assignedTo: req.body.assignedTo || req.user._id
+    });
     res.status(201).json({ success: true, data: task });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
@@ -64,7 +62,6 @@ exports.updateTask = async (req, res) => {
     const task = await Task.findById(req.params.id);
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
-    // Log activity
     const changes = [];
     if (req.body.status && req.body.status !== task.status) {
       changes.push({ action: 'Status changed', field: 'status', oldValue: task.status, newValue: req.body.status, by: req.user._id });
@@ -74,7 +71,7 @@ exports.updateTask = async (req, res) => {
     }
 
     Object.assign(task, req.body);
-    if (req.body.status === 'done') task.completedAt = new Date();
+    if (req.body.status === 'done' && !task.completedAt) task.completedAt = new Date();
     task.activityLog.push(...changes);
     await task.save();
 
@@ -93,13 +90,49 @@ exports.deleteTask = async (req, res) => {
   }
 };
 
+// Add subtask
+exports.addSubtask = async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+    task.subtasks.push({ ...req.body, order: task.subtasks.length });
+    await task.save();
+    res.json({ success: true, data: task });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// Update subtask
 exports.updateSubtask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     const subtask = task.subtasks.id(req.params.subtaskId);
     if (!subtask) return res.status(404).json({ success: false, message: 'Subtask not found' });
     Object.assign(subtask, req.body);
-    if (req.body.status === 'done') subtask.completedAt = new Date();
+    if (req.body.status === 'done' && !subtask.completedAt) subtask.completedAt = new Date();
+    await task.save();
+
+    // Auto-update main task status based on subtasks
+    const allDone = task.subtasks.every(s => s.status === 'done');
+    const anyInProgress = task.subtasks.some(s => s.status === 'in_progress');
+    if (allDone && task.subtasks.length > 0) task.status = 'done';
+    else if (anyInProgress) task.status = 'in_progress';
+    await task.save();
+
+    res.json({ success: true, data: task });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// Delete subtask
+exports.deleteSubtask = async (req, res) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+    task.subtasks.pull(req.params.subtaskId);
     await task.save();
     res.json({ success: true, data: task });
   } catch (err) {

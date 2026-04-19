@@ -1,8 +1,3 @@
-const dns = require('dns');
-if (process.env.NODE_ENV !== 'production') {
-  dns.setServers(['8.8.8.8', '8.8.4.4']);
-}
-
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -11,7 +6,6 @@ const dotenv = require('dotenv');
 const path = require('path');
 
 dotenv.config();
-
 const app = express();
 
 app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
@@ -30,20 +24,16 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/form-fields', require('./routes/formfields'));
+app.use('/api/wallets', require('./routes/wallets'));
 
-app.get('/api/health', (req, res) =>
-  res.json({ status: 'OK', timestamp: new Date() }),
-);
+app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res
-    .status(err.statusCode || 500)
-    .json({ success: false, message: err.message || 'Server Error' });
+  res.status(err.statusCode || 500).json({ success: false, message: err.message || 'Server Error' });
 });
 
-mongoose
-  .connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('✅ MongoDB connected');
     await require('./utils/seedAdmin')();
@@ -51,7 +41,4 @@ mongoose
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
     require('./utils/cronJobs');
   })
-  .catch((err) => {
-    console.error('❌ MongoDB connection error:', err.message);
-    process.exit(1);
-  });
+  .catch(err => { console.error('❌ MongoDB error:', err.message); process.exit(1); });
